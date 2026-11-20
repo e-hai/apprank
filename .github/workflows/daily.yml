@@ -33,16 +33,20 @@ jobs:
           key: apprank-state-${{ github.run_id }}
           restore-keys: apprank-state-
 
+      # 注意：GitHub Actions 的 if: 条件不支持 secrets 上下文，故把空值判断放进脚本内。
       - name: Configure IndexNow key (optional)
-        if: ${{ secrets.INDEXNOW_KEY != '' }}
         run: |
           python3 - <<'PY'
           import os, pathlib
-          key = os.environ['INDEXNOW_KEY']
-          p = pathlib.Path('src/config.py')
-          s = p.read_text(encoding='utf-8')
-          s = s.replace('INDEXNOW_KEY = ""', f'INDEXNOW_KEY = "{key}"')
-          p.write_text(s, encoding='utf-8')
+          key = os.environ.get('INDEXNOW_KEY', '').strip()
+          if not key:
+              print('[i] INDEXNOW_KEY not set, skipping')
+          else:
+              p = pathlib.Path('src/config.py')
+              s = p.read_text(encoding='utf-8')
+              s = s.replace('INDEXNOW_KEY = ""', f'INDEXNOW_KEY = "{key}"')
+              p.write_text(s, encoding='utf-8')
+              print('[i] INDEXNOW_KEY configured')
           PY
         env:
           INDEXNOW_KEY: ${{ secrets.INDEXNOW_KEY }}

@@ -23,7 +23,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: pip
+          # 本项目纯 Python 标准库、零 pip 依赖，故不启用 cache: pip（否则会因找不到 requirements.txt 报错）
 
       # 恢复上一轮的增量状态（.build_state.json），用于判断"实质变化"
       - name: Restore incremental state

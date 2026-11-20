@@ -71,6 +71,16 @@ jobs:
           fi
           echo "hreflang pages: $(grep -rl 'rel="alternate"' site --include=*.html | wc -l)"
 
+      # 确保 Pages 项目存在（首次运行自动创建；已存在则忽略报错）。
+      # 这样无需手动在 Cloudflare 控制台走"创建应用"向导。
+      - name: Ensure Cloudflare Pages project exists
+        uses: cloudflare/wrangler-action@v4
+        continue-on-error: true
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages project create ${{ vars.CF_PAGES_PROJECT || 'apprank' }} --production-branch=main
+
       # 部署到 Cloudflare Pages。项目名通过 CF_PAGES_PROJECT 变量配置（默认 apprank）。
       # 生产 URL = https://<project>.pages.dev；换成自定义域名后 URL 由 SITE_BASE_URL 决定。
       - name: Deploy to Cloudflare Pages

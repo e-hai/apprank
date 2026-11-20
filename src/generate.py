@@ -441,6 +441,88 @@ def render_page(store, market, chart, date, genre, rows, trend, insights, siblin
 # ---------------------------------------------------------------------------
 # Sitemap
 # ---------------------------------------------------------------------------
+def write_homepage(urls: list[tuple[str, str]], out_root: str, date: str):
+    """生成根首页 /index.html：作为全站导航枢纽，链接到所有已生成的榜单页。
+    只输出实际存在的页面链接（urls 来自本轮 fetch 结果），避免死链。"""
+    base = C.SITE["base_url"].rstrip("/")
+    existing = {u.rstrip("/") for u, _ in urls}
+
+    def cell(store, m, ch, g=None):
+        parts = [store, m, "top", ch] + ([g] if g else [])
+        url = f"{base}/{'/'.join(parts)}/"
+        if url.rstrip("/") not in existing:
+            return "—"
+        label = C.CHARTS[ch]["en"] + (f" · {C.genre_label('游戏', 'en')}" if g else "")
+        return f'<a href="{html.escape(url)}">{html.escape(label)}</a>'
+
+    def platform_table(store: str) -> str:
+        genre = C.GENRE_BY_STORE.get(store)
+        head = ("<tr><th>Market</th><th>Top Free</th><th>Top Paid</th><th>Top Grossing</th>"
+                "<th>Games · Free</th><th>Games · Paid</th><th>Games · Grossing</th></tr>")
+        rows = []
+        for m in C.ALL_MARKETS:
+            cells = [html.escape(C.market_name(m, "en"))]
+            cells += [cell(store, m, ch) for ch in C.ALL_CHARTS]
+            cells += [cell(store, m, ch, genre) if genre else "—" for ch in C.ALL_CHARTS]
+            rows.append("<tr><td>" + "</td><td>".join(cells) + "</td></tr>")
+        return f"<table>{head}{''.join(rows)}</table>"
+
+    css = (":root{--fg:#1a1a1a;--muted:#5f6368;--line:#e0e0e0;--blue:#1a73e8}"
+           "*{box-sizing:border-box}"
+           "body{font:16px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;"
+           "color:var(--fg);max-width:960px;margin:0 auto;padding:24px;background:#fff}"
+           "h1{font-size:2rem;line-height:1.25} h2{font-size:1.4rem;margin-top:2rem;"
+           "border-bottom:2px solid var(--line);padding-bottom:.3rem}"
+           ".meta{color:var(--muted);font-size:.9rem}"
+           "table{border-collapse:collapse;width:100%;font-size:.82rem;margin-top:1rem}"
+           "th,td{border-bottom:1px solid var(--line);padding:7px 6px;text-align:left}"
+           "th{background:#fafafa} a{color:var(--blue);text-decoration:none}"
+           "a:hover{text-decoration:underline} footer{margin-top:3rem;padding-top:1rem;"
+           "border-top:1px solid var(--line);color:var(--muted);font-size:.85rem}")
+    n = len(existing)
+    desc = (f"Daily Top 30 app charts for {len(C.ALL_MARKETS)} markets across the App Store and "
+            f"Google Play: free, paid, grossing and games, with rank history and insights. "
+            f"Snapshot {date}.")
+    store_tables = "".join(
+        f"<h2>{html.escape(C.STORES[s]['en'])}</h2>{platform_table(s)}" for s in C.ALL_STORES)
+    page = f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>{html.escape(C.SITE['name'])} — Daily App Store &amp; Google Play Top 30 Charts</title>
+<meta name="description" content="{html.escape(desc)}"/>
+<meta name="robots" content="index,follow"/>
+<link rel="canonical" href="{html.escape(base)}/"/>
+<link rel="alternate" hreflang="x-default" href="{html.escape(base)}/"/>
+<script type="application/ld+json">{{
+  "@context":"https://schema.org","@type":"Dataset",
+  "name":"{html.escape(C.SITE['name'])} — Daily App Charts",
+  "description":"{html.escape(desc)}",
+  "creator":{{"@type":"Organization","name":"{html.escape(C.SITE['name'])}"}},
+  "temporalCoverage":"{date}","isAccessibleForFree":true,
+  "sameAs":"https://e-hai.github.io/Appstore_Top_30/api/"
+}}</script>
+<style>{css}</style>
+</head>
+<body>
+<h1>{html.escape(C.SITE['name'])}</h1>
+<p class="meta">Daily snapshots of the Top 30 apps in {len(C.ALL_MARKETS)} markets — {n} chart pages. Last updated {date}.</p>
+<p>Explore free, paid and grossing rankings plus game charts for the App Store and Google Play.
+Every page shows the current top 30, rank movement, a rank-history chart and a short insight
+computed from that day's real data. Rankings are a daily sample from the
+<a href="https://github.com/e-hai/Appstore_Top_30" rel="nofollow">e-hai/Appstore_Top_30</a>
+open dataset, not a live feed.</p>
+{store_tables}
+<footer>
+Data source: <a href="https://github.com/e-hai/Appstore_Top_30" rel="nofollow">e-hai/Appstore_Top_30</a>.
+App Store is a trademark of Apple Inc. Google Play is a trademark of Google LLC.
+All app names and marks belong to their respective owners.
+</footer>
+</body>
+</html>"""
+    Path(out_root, "index.html").write_text(page, encoding="utf-8")
+
 def write_sitemap(urls: list[tuple[str, str]], out_root: str):
     lines = ['<?xml version="1.0" encoding="UTF-8"?>',
              '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" '
@@ -583,7 +665,10 @@ def main():
         except Exception as e:
             print(f"[ERR] render {store}/{market}/{ch}/{genre}: {e}", file=sys.stderr)
 
-    write_sitemap(urls, out)
+    write_homepage(urls, out, date)          # 根首页 /index.html（导航枢纽）
+    # sitemap 纳入首页
+    home_url = f"{C.SITE['base_url'].rstrip('/')}/"
+    write_sitemap([(home_url, date)] + urls, out)
     write_robots(out)
     INC.save_state(args.state, date, new_state_pages)
 

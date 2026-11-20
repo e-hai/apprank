@@ -1,0 +1,81 @@
+name: Daily SEO pages build & deploy (Cloudflare Pages)
+
+# 每天北京时间 09:00（UTC 01:00）重建并部署到 Cloudflare Pages。
+# 数据源 e-hai/Appstore_Top_30 在北京时间 08:00 更新，此处错后 1 小时。
+# 托管：Cloudflare Pages（免费额度 500 构建/月、无限带宽、自带 *.pages.dev + 免费 SSL）。
+on:
+  schedule:
+    - cron: '0 1 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apprank-pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      # 恢复上一轮的增量状态（.build_state.json），用于判断"实质变化"
+      - name: Restore incremental state
+        uses: actions/cache@v4
+        with:
+          path: .build_state.json
+          key: apprank-state-${{ github.run_id }}
+          restore-keys: apprank-state-
+
+      - name: Configure IndexNow key (optional)
+        if: ${{ secrets.INDEXNOW_KEY != '' }}
+        run: |
+          python3 - <<'PY'
+          import os, pathlib
+          key = os.environ['INDEXNOW_KEY']
+          p = pathlib.Path('src/config.py')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('INDEXNOW_KEY = ""', f'INDEXNOW_KEY = "{key}"')
+          p.write_text(s, encoding='utf-8')
+          PY
+        env:
+          INDEXNOW_KEY: ${{ secrets.INDEXNOW_KEY }}
+
+      # 全量模式：内部按 state 自动跳过无实质变化的页；只对变化 URL 提交 IndexNow。
+      # SITE_BASE_URL 来自 GitHub Variables（换独立域名时只需改它），未设置则用代码默认值 apprank.pages.dev。
+      - name: Build static SEO pages (full + incremental)
+        run: python3 src/generate.py --mode full --out site --state .build_state.json
+        env:
+          SITE_BASE_URL: ${{ vars.SITE_BASE_URL || 'https://apprank.pages.dev' }}
+
+      - name: Sanity check (fail fast)
+        run: |
+          test -f site/sitemap.xml || { echo "no sitemap"; exit 1; }
+          n=$(find site -name index.html | wc -l)
+          echo "generated pages: $n"
+          test "$n" -ge 100 || { echo "too few pages for full mode"; exit 1; }
+          if grep -rl 'FAQPage' site --include=*.html | grep -q .; then
+            echo "ERROR: FAQPage schema found (deprecated)"; exit 1
+          fi
+          if grep -rl '游戏\|总榜' site --include=*.html | grep -q .; then
+            echo "ERROR: Chinese category leaked into English pages"; exit 1
+          fi
+          if grep -rl 'example.com' site --include=*.html | grep -q .; then
+            echo "ERROR: placeholder domain found"; exit 1
+          fi
+          echo "hreflang pages: $(grep -rl 'rel="alternate"' site --include=*.html | wc -l)"
+
+      # 部署到 Cloudflare Pages。项目名通过 CF_PAGES_PROJECT 变量配置（默认 apprank）。
+      # 生产 URL = https://<project>.pages.dev；换成自定义域名后 URL 由 SITE_BASE_URL 决定。
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy site --project-name=${{ vars.CF_PAGES_PROJECT || 'apprank' }} --branch=main

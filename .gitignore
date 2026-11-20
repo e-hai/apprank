@@ -1,0 +1,17 @@
+# 站点是构建产物：Actions 每次重新生成 site/ 再部署，无需入库
+site/
+
+# 本地状态与临时产物
+.build_state.json
+*.pyc
+__pycache__/
+
+# 系统文件
+.DS_Store
+
+# IndexNow key（如已生成，切勿提交到公开仓库）
+*.txt
+!site/robots.txt
+
+# 本地预览/备份目录
+_site_backup/
